@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+venv
+
+captures/charuco_*/
+captures/logs/*.txt
+charuco_*.png
+
+.DS_Store
+Thumbs.db
