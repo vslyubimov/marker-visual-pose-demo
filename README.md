@@ -41,8 +41,10 @@ python detect_pose_aruco.py captures/charuco_YYYYMMDD_HHMMSS/camera_calibration.
 
 OpenCV camera frame:
 
-X — вправо
-Y — вниз
-Z — вперёд от камеры
+- X — вправо
+- Y — вниз
+- Z — вперёд от камеры
+
 Поза описывает маркер относительно камеры
+
 Углы: roll, pitch, yaw в градусах (ZYX)
