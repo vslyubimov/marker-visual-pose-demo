@@ -15,36 +15,38 @@
 - OpenCV (contrib)  
 - NumPy
 ## Пайплайн использования
-1. Генерация ChArUco-доски
+config.json содержит настраиваемые параметры ChArUco-доски, камеры, ArUco-маркера.
+
+1. Генерация ChArUco-доски. 
 ```bash
 python generate_charuco_board.py
 ```
-
 
 2. Сбор изображений для калибровки
 ```bash
 python capture_charuco.py
 ```
-
+Изображения сохраняются на клавишу "space" в папку captures/charuco_YYYYMMDD_HHMMSS  
 
 3. Калибровка камеры
 ```
 python calibrate_charuco.py captures/charuco_YYYYMMDD_HHMMSS
 ```
-Результат:
-camera_calibration.json в той же папке
+Параметры калибровки записывается в captures/charuco_YYYYMMDD_HHMMSS/camera_calibration.json
 
 4. Оценка позы ArUco-маркера
+Указать путь до json с калибровкой камеры.
 ```bash
 python detect_pose_aruco.py captures/charuco_YYYYMMDD_HHMMSS/camera_calibration.json
 ```
+В консоли, в HUD и в логах (captures/logs) отображатся: x, y, z, roll, pitch, yaw. 
 
-OpenCV camera frame:
 
-- X — вправо
-- Y — вниз
-- Z — вперёд от камеры
+OpenCV camera frame:  
+  - X — вправо
+  - Y — вниз
+  - Z — вперёд от камеры
 
-Поза описывает маркер относительно камеры
+Поза ArUco-маркера относительно камеры в углах:
 
 Углы: roll, pitch, yaw в градусах (ZYX)
