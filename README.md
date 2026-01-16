@@ -11,9 +11,9 @@
 - вывод позы в консоль с заданной частотой и логирование в файл
 
 ## Зависимости
-- Python ≥ 3.9  
-- OpenCV (contrib)  
-- NumPy
+- Python ≥ 3.9  (3.13.9 used)
+- OpenCV (contrib) >= 4.7 (4.12 used)
+- NumPy (2.2.6 used)
 ## Пайплайн использования
 config.json содержит настраиваемые параметры ChArUco-доски, камеры, ArUco-маркера.
 
@@ -32,9 +32,10 @@ python capture_charuco.py
 ```
 python calibrate_charuco.py captures/charuco_YYYYMMDD_HHMMSS
 ```
-Параметры калибровки записывается в captures/charuco_YYYYMMDD_HHMMSS/camera_calibration.json
+Результаты калибровки записывается в captures/charuco_YYYYMMDD_HHMMSS/camera_calibration.json
 
-4. Оценка позы ArUco-маркера
+4. Оценка позы ArUco-маркера. 
+
 Указать путь до json с калибровкой камеры.
 ```bash
 python detect_pose_aruco.py captures/charuco_YYYYMMDD_HHMMSS/camera_calibration.json
@@ -50,3 +51,6 @@ OpenCV camera frame:
 Поза ArUco-маркера относительно камеры в углах:
 
 Углы: roll, pitch, yaw в градусах (ZYX)
+
+
+Modern OpenCV ArUco API используется (нет deprecated ArUco функций).
