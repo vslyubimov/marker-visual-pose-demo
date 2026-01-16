@@ -20,16 +20,11 @@ def save_json(path, data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-def reprojection_error_charuco(board, all_corners, all_ids, rvecs, tvecs, K, dist):
+def reprojection_error(object_points_list, image_points_list, rvecs, tvecs, K, dist):
     total_err2 = 0.0
     total_pts = 0
 
-    chessboard_corners_3d = board.getChessboardCorners()  # (N,3)
-
-    for corners, ids, rvec, tvec in zip(all_corners, all_ids, rvecs, tvecs):
-        obj_pts = chessboard_corners_3d[ids.flatten(), :].reshape(-1, 1, 3).astype(np.float32)
-        img_pts = corners.reshape(-1, 1, 2).astype(np.float32)
-
+    for obj_pts, img_pts, rvec, tvec in zip(object_points_list, image_points_list, rvecs, tvecs):
         proj, _ = cv2.projectPoints(obj_pts, rvec, tvec, K, dist)
         err = cv2.norm(img_pts, proj, cv2.NORM_L2)
 
@@ -75,6 +70,7 @@ def main():
     params.cornerRefinementMinAccuracy = 0.1
 
     detector = cv2.aruco.ArucoDetector(aruco_dict, params)
+    charuco_detector = cv2.aruco.CharucoDetector(board)
 
     img_paths = sorted(
         glob(os.path.join(images_dir, "*.png")) +
@@ -85,8 +81,8 @@ def main():
     if len(img_paths) == 0:
         raise FileNotFoundError(f"No images found in: {images_dir}")
 
-    all_corners = []
-    all_ids = []
+    object_points_list = []
+    image_points_list = []
     used_files = []
 
     img_size = None
@@ -101,27 +97,23 @@ def main():
         if img_size is None:
             img_size = (gray.shape[1], gray.shape[0])  # (w,h)
 
-        marker_corners, marker_ids, _ = detector.detectMarkers(gray)
-        if marker_ids is None or len(marker_ids) == 0:
+        charuco_corners, charuco_ids, _, _ = charuco_detector.detectBoard(gray)
+        
+        if charuco_ids is None or len(charuco_ids) < 6:
             skipped += 1
             continue
 
-        retval, charuco_corners, charuco_ids = cv2.aruco.interpolateCornersCharuco(
-            markerCorners=marker_corners,
-            markerIds=marker_ids,
-            image=gray,
-            board=board
-        )
+        object_points, image_points = board.matchImagePoints(charuco_corners, charuco_ids)
 
-        if charuco_ids is None or len(charuco_ids) < 6 or int(retval) <= 0:
+        if object_points is None or image_points is None:
             skipped += 1
             continue
 
-        all_corners.append(charuco_corners)
-        all_ids.append(charuco_ids)
+        object_points_list.append(object_points.astype(np.float32))
+        image_points_list.append(image_points.astype(np.float32))
         used_files.append(os.path.basename(p))
 
-    usable = len(all_ids)
+    usable = len(used_files)
     print(f"Total images: {len(img_paths)} | Usable: {usable} | Skipped: {skipped}")
 
     if usable < 10:
@@ -131,21 +123,17 @@ def main():
     flags = 0
     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_COUNT, 100, 1e-9)
 
-    K_init = np.eye(3, dtype=np.float64)
-    dist_init = np.zeros((5, 1), dtype=np.float64)
-
-    rms, K, dist, rvecs, tvecs = cv2.aruco.calibrateCameraCharuco(
-        charucoCorners=all_corners,
-        charucoIds=all_ids,
-        board=board,
+    rms, K, dist, rvecs, tvecs = cv2.calibrateCamera(
+        objectPoints=object_points_list,
+        imagePoints=image_points_list,
         imageSize=img_size,
-        cameraMatrix=K_init,
-        distCoeffs=dist_init,
+        cameraMatrix=None,
+        distCoeffs=None,
         flags=flags,
         criteria=criteria
     )
 
-    mean_reproj = reprojection_error_charuco(board, all_corners, all_ids, rvecs, tvecs, K, dist)
+    mean_reproj = reprojection_error(object_points_list, image_points_list, rvecs, tvecs, K, dist)
 
     out = {
         "calibration_type": "charuco",

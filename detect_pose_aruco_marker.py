@@ -55,16 +55,17 @@ def main():
     pose_cfg = cfg.get("detector_parameters", {})
 
     dict_name = str(board_cfg.get("dictionary"))
-    cam_index = int(cam_cfg.get("index", 0))
-    cam_width = int(cam_cfg.get("width", 1280))
-    cam_height = int(cam_cfg.get("height", 720))
-    cam_fps = int(cam_cfg.get("fps", 30))
+    cam_index = int(cam_cfg.get("index"))
+    cam_width = int(cam_cfg.get("width"))
+    cam_height = int(cam_cfg.get("height"))
+    cam_fps = int(cam_cfg.get("fps"))
 
-    marker_length_mm = float(pose_cfg.get("marker_length_mm", 50.0))
-    print_hz = float(pose_cfg.get("print_hz", 2.0))
-    target_id = int(pose_cfg.get("target_id", -1))
+    marker_length_mm = float(pose_cfg.get("marker_length_mm"))
+    print_hz = float(pose_cfg.get("print_hz"))
+    target_id = int(pose_cfg.get("target_id"))
 
     marker_length_m = marker_length_mm / 1000.0
+    half = marker_length_m / 2.0
     print_period = 1.0 / max(0.1, print_hz)
 
     K = np.array(calib["camera_matrix"], dtype=np.float64)
@@ -100,8 +101,20 @@ def main():
     print(f"Marker length: {marker_length_mm} mm")
     print(f"Print rate: {print_hz} Hz | target_id: {target_id}")
     print("q/ESC = quit")
+    print("Keys: v=toggle view, q/ESC=quit")
+
+    obj_pts = np.array(
+        [
+            [-half, +half, 0.0],
+            [+half, +half, 0.0],
+            [+half, -half, 0.0],
+            [-half, -half, 0.0],
+        ],
+        dtype=np.float32
+    ).reshape(-1, 1, 3)
 
     next_print_t = 0.0
+    draw_all = False
 
     while True:
         ok, frame = cap.read()
@@ -113,86 +126,98 @@ def main():
 
         corners, ids, _ = detector.detectMarkers(gray)
 
-        best_idx = None
-        best_area = -1.0
-
+        target_idx = None
         if ids is not None and len(ids) > 0:
-            cv2.aruco.drawDetectedMarkers(vis, corners, ids)
+            ids_flat = ids.flatten()
 
-            for i, mid in enumerate(ids.flatten().tolist()):
-                if target_id >= 0:
-                    if mid == target_id:
-                        best_idx = i
-                        break
-                else:
-                    c = corners[i].reshape(4, 2)
-                    a = polygon_area(c)
-                    if a > best_area:
-                        best_area = a
-                        best_idx = i
+            #find target marker index
+            for i in range(len(ids_flat)):
+                if ids_flat[i] == target_id:
+                    target_idx = i
+                    break
+            # draw markers:
+            # if draw_all - draw all marker boxes
+            # else - draw only target marker boxes (if present)
+            if draw_all:
+                cv2.aruco.drawDetectedMarkers(vis, corners, ids)
+            else:
+                if target_idx is not None:
+                    cv2.aruco.drawDetectedMarkers(
+                        vis,
+                        [corners[target_idx]],
+                        ids[target_idx : target_idx + 1]
+                    )
+        
+        # solvePnP for target marker only
+        if target_idx is not None:
+            img_pts = corners[target_idx].reshape(4, 2).astype(np.float32).reshape(-1, 1, 2)
 
-        if best_idx is not None:
-            chosen_id = int(ids.flatten()[best_idx])
-
-            rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
-                [corners[best_idx]],
-                marker_length_m,
-                K,
-                dist
+            ok_pnp, rvec, tvec = cv2.solvePnP(
+                objectPoints=obj_pts,
+                imagePoints=img_pts,
+                cameraMatrix=K,
+                distCoeffs=dist,
+                flags=cv2.SOLVEPNP_IPPE_SQUARE
             )
-            rvec = rvecs[0].reshape(3)
-            tvec = tvecs[0].reshape(3)
 
-            cv2.drawFrameAxes(vis, K, dist, rvec.reshape(3, 1), tvec.reshape(3, 1), marker_length_m * 0.5)
+            if ok_pnp:
+                cv2.drawFrameAxes(vis, K, dist, rvec, tvec, marker_length_m * 0.5)
+                
+                roll, pitch, yaw = rvec_to_euler_zyx_deg(rvec.reshape(3))
+                x, y, z = float(tvec[0]), float(tvec[1]), float(tvec[2])
+            
+                now = time.time()
+                if now >= next_print_t:
+                    next_print_t = now + print_period
 
-            roll, pitch, yaw = rvec_to_euler_zyx_deg(rvec)
-            x, y, z = float(tvec[0]), float(tvec[1]), float(tvec[2])
+                    line = (
+                        f"id={target_id}  "
+                        f"x={x:+.4f}  y={y:+.4f}  z={z:+.4f}  "
+                        f"roll={roll:+.2f}  pitch={pitch:+.2f}  yaw={yaw:+.2f}"
+                    )
 
-            now = time.time()
-            if now >= next_print_t:
-                next_print_t = now + print_period
+                    print(line)
+                    log_file.write(line + "\n")
 
-                line = (
-                    f"id={chosen_id}  "
-                    f"x={x:+.4f}  y={y:+.4f}  z={z:+.4f}  "
-                    f"roll={roll:+.2f}  pitch={pitch:+.2f}  yaw={yaw:+.2f}"
-                )
-
-                print(line)
-                log_file.write(line + "\n")
-
-                        # HUD
-            cv2.putText(vis, f"ID: {chosen_id}", (20, 35),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
-
-            cv2.putText(vis, f"x: {x:+.3f} m", (20, 70),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-            cv2.putText(vis, f"y: {y:+.3f} m", (20, 95),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-            cv2.putText(vis, f"z: {z:+.3f} m", (20, 120),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-
-            cv2.putText(vis, f"roll : {roll:+.1f} deg", (20, 155),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-            cv2.putText(vis, f"pitch: {pitch:+.1f} deg", (20, 180),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-            cv2.putText(vis, f"yaw  : {yaw:+.1f} deg", (20, 205),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-
+                # HUD
+                cv2.putText(vis, f"ID: {target_id}", (20, 35),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
+                cv2.putText(vis, f"x: {x:+.3f} m", (20, 70),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
+                cv2.putText(vis, f"y: {y:+.3f} m", (20, 95),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
+                cv2.putText(vis, f"z: {z:+.3f} m", (20, 120),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
+                cv2.putText(vis, f"roll : {roll:+.1f} deg", (20, 155),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
+                cv2.putText(vis, f"pitch: {pitch:+.1f} deg", (20, 180),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
+                cv2.putText(vis, f"yaw  : {yaw:+.1f} deg", (20, 205),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
+            else: 
+                cv2.putText(vis, "solvePnP failed", (20, 35),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2, cv2.LINE_AA)
         else:
-            cv2.putText(vis, "No marker", (20, 35),
+            cv2.putText(vis, f"Target ID {target_id} not found", (20, 35),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
 
+        # bottom HUD
         h, w = vis.shape[:2]
+        view_mode = "DRAW_ALL" if draw_all else "ONLY_TARGET"
+        cv2.putText(vis, f"view: {view_mode} (press 'v' to toggle)", (20, h - 50),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
         cv2.putText(vis, "q/ESC=quit", (20, h - 20),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
 
 
         cv2.imshow("detect_pose_aruco", vis)
         key = cv2.waitKey(1) & 0xFF
+        
+        # keys
+        if key in (ord("v"), ord("V")):
+            draw_all = not draw_all
         if key in (27, ord("q")):
             break
-
     log_file.close()
     cap.release()
     cv2.destroyAllWindows()

@@ -19,7 +19,7 @@ def main():
     cfg = load_json(config_path)
 
     board_cfg = cfg.get("board", {})
-    cam_cfg = cfg.get("camera", {})
+    cam_cfg = cfg.get("camera_parameters", {})
     cap_cfg = cfg.get("capture", {})
 
     squares_x = int(board_cfg.get("squares_x"))
@@ -50,6 +50,7 @@ def main():
     params.cornerRefinementMinAccuracy = 0.1
 
     detector = cv2.aruco.ArucoDetector(aruco_dict, params)
+    charuco_detector = cv2.aruco.CharucoDetector(board)
 
     cap = cv2.VideoCapture(cam_index)
     if not cap.isOpened():
@@ -83,23 +84,14 @@ def main():
         if ids is not None and len(ids) > 0:
             cv2.aruco.drawDetectedMarkers(vis, corners, ids)
 
-        n_charuco = 0
-        charuco_corners = None
-        charuco_ids = None
+        charuco_corners, charuco_ids, _, _ = charuco_detector.detectBoard(gray)
+        
+        n_charuco = 0 if charuco_ids is None else len(charuco_ids)
+        if charuco_ids is not None and len(charuco_ids) > 0:    
+            cv2.aruco.drawDetectedCornersCharuco(vis, charuco_corners, charuco_ids, (0, 255, 0))
+        
+        good = (n_charuco >= min_charuco_corners)
 
-        if ids is not None and len(ids) > 0:
-            retval, charuco_corners, charuco_ids = cv2.aruco.interpolateCornersCharuco(
-                markerCorners=corners,
-                markerIds=ids,
-                image=gray,
-                board=board
-            )
-            n_charuco = int(retval) if retval is not None else 0
-
-            if charuco_corners is not None and charuco_ids is not None and len(charuco_ids) > 0:
-                cv2.aruco.drawDetectedCornersCharuco(vis, charuco_corners, charuco_ids, (0, 255, 0))
-
-        good = (n_markers >= min_aruco_markers) and (n_charuco >= min_charuco_corners)
 
         h, w = vis.shape[:2]
         status = "Board detected" if good else "No board"
